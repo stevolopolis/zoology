@@ -146,11 +146,11 @@ class TransformerBlock(nn.Module):
         self.drop_path2 = StochasticDepth(config.drop_path, mode="row")
         self.norm2 = nn.LayerNorm(config.d_model)
 
-    def forward(self, hidden_states, residual=None):
+    def forward(self, hidden_states, residual=None, **kwargs):
         dropped = self.drop_path1(self.dropout1(hidden_states))
         residual = (dropped + residual) if residual is not None else dropped
         hidden_states = self.norm1(residual.to(dtype=self.norm1.weight.dtype))
-        hidden_states = self.sequence_mixer(hidden_states)
+        hidden_states = self.sequence_mixer(hidden_states, **kwargs)
             
         dropped = self.drop_path2(self.dropout2(hidden_states))
         residual = (dropped + residual) if residual is not None else dropped
@@ -187,14 +187,14 @@ class LMBackbone(nn.Module):
         self.ln_f = nn.LayerNorm(config.d_model, eps=config.layer_norm_epsilon)
         self.apply(partial(_init_weights, n_layers=config.n_layers, block_type=config.block_type))
 
-    def forward(self, input_ids, position_ids=None):
+    def forward(self, input_ids, position_ids=None, **kwargs):
         hidden_states = self.embeddings(
             input_ids,
             position_ids=position_ids,
         )
         residual = None
         for layer in self.layers:
-            hidden_states, residual = layer(hidden_states, residual)
+            hidden_states, residual = layer(hidden_states, residual, **kwargs)
         dropped = self.drop_f(hidden_states)
         residual = (dropped + residual) if residual is not None else dropped
         hidden_states = self.ln_f(residual.to(dtype=self.ln_f.weight.dtype))
@@ -219,9 +219,9 @@ class LanguageModel(nn.Module):
         self.lm_head.weight = self.backbone.embeddings.word_embeddings.weight
 
     def forward(
-        self, input_ids, position_ids=None, state=None
+        self, input_ids, position_ids=None, state=None, **kwargs
     ): 
-        hidden_states = self.backbone(input_ids, position_ids=position_ids)
+        hidden_states = self.backbone(input_ids, position_ids=position_ids, **kwargs)
         return self.lm_head(hidden_states)
     
     def state_size(self, sequence_length: int):

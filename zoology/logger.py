@@ -17,6 +17,7 @@ class WandbLogger:
             name=config.run_id,
             entity=config.logger.entity,
             project=config.logger.project_name, 
+            group=config.logger.group,
         )
         # wandb.run.log_code(
         #     root=str(Path(__file__).parent.parent),

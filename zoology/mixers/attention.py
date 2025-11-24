@@ -6,11 +6,12 @@ import math
 
 
 class SelfAttention(nn.Module):
-    def __init__(self, attention_dropout=0.0):
+    def __init__(self, attention_dropout=0.0, gist=False):
         super().__init__()
         self.dropout_p = attention_dropout
+        self.gist = gist
 
-    def forward(self, qkv):
+    def forward(self, qkv, gist_start=None, n_gists=None):
         """Implements the multihead softmax attention.
         Arguments
         ---------
@@ -24,6 +25,9 @@ class SelfAttention(nn.Module):
         causal_mask = torch.triu(
             torch.full((seqlen, seqlen), -10000.0, device=scores.device), 1
         )
+        # mask all the tokens prior to gist start from tokens after gist_start + n_gists
+        if (gist_start is not None and n_gists is not None) and self.gist:
+            causal_mask[gist_start+n_gists:, :gist_start] = -10000.0
         scores = scores + causal_mask.to(dtype=scores.dtype)
         attention = torch.softmax(scores, dim=-1, dtype=v.dtype)
         attention_drop = F.dropout(attention, self.dropout_p if self.training else 0.0)
@@ -42,6 +46,7 @@ class MHA(nn.Module):
         bias: bool=True,
         dropout: float=0.0,
         layer_idx: int=None,
+        gist: bool=False,
     ) -> None:
         super().__init__()
         self.d_model = d_model
@@ -54,16 +59,16 @@ class MHA(nn.Module):
         self.Wqkv = nn.Linear(
             d_model, 3 * d_model, bias=bias
         )
-        self.inner_attn = SelfAttention(attention_dropout=dropout)
+        self.inner_attn = SelfAttention(attention_dropout=dropout, gist=gist)
         self.out_proj = nn.Linear(d_model, d_model)
 
-    def forward(self, x: torch.Tensor):
+    def forward(self, x: torch.Tensor, **kwargs):
         """"""
         qkv = self.Wqkv(x)
         qkv = rearrange(
             qkv, "... (three h d) -> ... three h d", three=3, d=self.head_dim
         )
-        context = self.inner_attn(qkv)
+        context = self.inner_attn(qkv, **kwargs)
         out = self.out_proj(rearrange(context, "... h d -> ... (h d)"))
         return out
     

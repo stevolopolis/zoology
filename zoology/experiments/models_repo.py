@@ -7,12 +7,16 @@ from zoology.config import TrainConfig, ModelConfig, ModuleConfig
 
 # Attention
 def add_attention(models, conv_mixer, input_seq_len, model_factory_kwargs):
-    for d_model in [64, 128]:
+    # for n_layers in [2, 4, 8, 12]:
+        # d_model = 128
+    for d_model in [512, 256, 128, 64]:
+        n_layers = 2
         attention_mixer = dict(
             name="zoology.mixers.attention.MHA",
             kwargs={
-                "dropout": 0.1,
-                "num_heads": 1
+                # "dropout": 0.1,  # Matching gla and gsa
+                "num_heads": 2,  # Matching gla and gsa
+                "gist": False
             },
         )
         mixer = ModuleConfig(
@@ -22,7 +26,38 @@ def add_attention(models, conv_mixer, input_seq_len, model_factory_kwargs):
         model = ModelConfig(
             block_type = "TransformerBlock",
             d_model=d_model,
-            n_layers=2,
+            n_layers=n_layers,
+            sequence_mixer=mixer,
+            max_position_embeddings=0,
+            name="attention",
+            **model_factory_kwargs
+        )
+        models.append(model)
+    return models
+
+
+# Attention
+def add_gist_attention(models, conv_mixer, input_seq_len, model_factory_kwargs):
+    # for n_layers in [2, 4, 8, 12]:
+        # d_model = 128
+    for d_model in [512, 256, 128, 64, 32, 16, 8]:
+        n_layers = 2
+        attention_mixer = dict(
+            name="zoology.mixers.attention.MHA",
+            kwargs={
+                # "dropout": 0.1,  # Matching gla and gsa
+                "num_heads": 2,  # Matching gla and gsa
+                "gist": True
+            },
+        )
+        mixer = ModuleConfig(
+            name="zoology.mixers.hybrid.Hybrid",
+            kwargs={"configs": [conv_mixer, attention_mixer]}
+        )
+        model = ModelConfig(
+            block_type = "TransformerBlock",
+            d_model=d_model,
+            n_layers=n_layers,
             sequence_mixer=mixer,
             max_position_embeddings=0,
             name="attention",
@@ -231,7 +266,9 @@ def add_rwkv7(models, conv_mixer, input_seq_len, model_factory_kwargs):
 # DeltaNet
 def add_delta_net(models, conv_mixer, input_seq_len, model_factory_kwargs):
     block_type = "TransformerBlock"
-    for d_model in [64, 128, 256]: 
+    # for d_model in [64, 128, 256]:
+    for d_model in [128]:
+    # for d_model in [512, 1024]: 
         delta_net_mixer = dict(
             name="zoology.mixers.delta_net.DeltaNet",
             kwargs={
@@ -263,7 +300,7 @@ def add_delta_net(models, conv_mixer, input_seq_len, model_factory_kwargs):
 # DeltaNet
 def add_gated_delta_net(models, conv_mixer, input_seq_len, model_factory_kwargs):
     block_type = "TransformerBlock"
-    for d_model in [64, 128, 256]: 
+    for d_model in [256]: 
         delta_net_mixer = dict(
             name="zoology.mixers.gated_delta_net.GatedDeltaNet",
             kwargs={
@@ -294,12 +331,16 @@ def add_gated_delta_net(models, conv_mixer, input_seq_len, model_factory_kwargs)
 # Gated linear attention
 def add_gla(models, conv_mixer, input_seq_len, model_factory_kwargs):
     block_type = "TransformerBlock"
-    for d_model in [64, 128, 256]: 
+    # for n_layers in [16, 8, 4, 3, 2]:
+    n_layers = 2
+    for d_model in [128]:  
+    # for d_model in [192,256,384,512,768]:  
         delta_net_mixer = dict(
             name="zoology.mixers.gla.GatedLinearAttention",
             kwargs={
                 "num_heads": 2,          # Tune
                 "use_short_conv": False, # Tune (False default)
+                "mode": "fused_recurrent"
             }
         )
         mixer = dict(
@@ -309,10 +350,81 @@ def add_gla(models, conv_mixer, input_seq_len, model_factory_kwargs):
         model = ModelConfig(
             block_type="TransformerBlock",
             d_model=d_model,
-            n_layers=2,
+            n_layers=n_layers,
             sequence_mixer=mixer,
             max_position_embeddings=0,
             name="gla",
+            **model_factory_kwargs
+        )
+        models.append(model)
+    return models
+
+
+# Gated linear attention
+def add_gsa(models, conv_mixer, input_seq_len, model_factory_kwargs):
+    block_type = "TransformerBlock"
+    # for d_model in [64, 128, 256]:
+    #     num_slots = d_model // 2
+    # for n_layers in [16, 8, 4, 3, 2]:
+    n_layers = 2
+    for num_slots in [64,128,256]:
+    # for num_slots in [256,512,1024]:
+        d_model = 256
+        delta_net_mixer = dict(
+            name="zoology.mixers.gsa.GatedSlotAttention",
+            kwargs={
+                "num_heads": 2,          # Tune
+                "use_short_conv": False, # Tune (False default),
+                "num_slots": num_slots,
+                "mode": "fused_recurrent",
+                # "mode": "chunk",
+            }
+        )
+        mixer = dict(
+            name="zoology.mixers.hybrid.Hybrid",
+            kwargs={"configs": [conv_mixer, delta_net_mixer]}
+        )
+        model = ModelConfig(
+            block_type="TransformerBlock",
+            d_model=d_model,
+            n_layers=n_layers,
+            sequence_mixer=mixer,
+            max_position_embeddings=0,
+            name="gsa",
+            **model_factory_kwargs
+        )
+        models.append(model)
+    return models
+
+
+# Gist slot attention
+def add_gistsa(models, conv_mixer, input_seq_len, model_factory_kwargs):
+    block_type = "TransformerBlock"
+    # for d_model in [64, 128, 256]:
+    #     num_slots = d_model // 2
+    # for n_layers in [16, 8, 4, 3, 2]:
+    n_layers = 2
+    for d_model in [256]:  # Doesn't matter anymore
+        delta_net_mixer = dict(
+            name="zoology.mixers.gistsa.GistSlotAttention",
+            kwargs={
+                "num_heads": 2,          # Tune
+                "use_short_conv": False, # Tune (False default),
+                "mode": "fused_recurrent",
+                # "mode": "chunk",
+            }
+        )
+        mixer = dict(
+            name="zoology.mixers.hybrid.Hybrid",
+            kwargs={"configs": [conv_mixer, delta_net_mixer]}
+        )
+        model = ModelConfig(
+            block_type="TransformerBlock",
+            d_model=d_model,
+            n_layers=n_layers,
+            sequence_mixer=mixer,
+            max_position_embeddings=0,
+            name="gistsa",
             **model_factory_kwargs
         )
         models.append(model)

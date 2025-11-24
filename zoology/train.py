@@ -55,12 +55,12 @@ class Trainer:
             desc=f"Train Epoch {epoch_idx}/{self.max_epochs}",
         )
 
-        for inputs, targets, slices in iterator:
+        for inputs, targets, slices, kwargs in iterator:
             inputs, targets = inputs.to(self.device), targets.to(self.device)
             self.optimizer.zero_grad()
 
             # forward
-            logits = self.model(inputs)
+            logits = self.model(inputs, **kwargs)
 
             # collect auxiliary losses
             auxiliary_loss = []
@@ -104,9 +104,9 @@ class Trainer:
             desc=f"Valid Epoch {epoch_idx}/{self.max_epochs}",
             postfix={"loss": "-", "acc": "-"},
         ) as iterator:
-            for inputs, targets, slices in self.test_dataloader:
+            for inputs, targets, slices, kwargs in self.test_dataloader:
                 inputs, targets = inputs.to(self.device), targets.to(self.device)
-                logits = self.model(inputs)
+                logits = self.model(inputs, **kwargs)
 
                 loss = self.loss_fn(
                     rearrange(logits, "... c -> (...) c"), targets.flatten()

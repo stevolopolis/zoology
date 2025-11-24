@@ -20,6 +20,7 @@ class DataSegment:
     inputs: torch.Tensor
     labels: torch.Tensor
     slices: Dict[str, any] = None
+    kwargs: Dict[str, any] = None
 
     def __len__(self):
         assert len(self.inputs) == len(self.labels) 
@@ -118,7 +119,7 @@ def prepare_data(config: DataConfig) -> Tuple[DataLoader, DataLoader]:
     ], batch_size=test_batch_size)
 
     return (
-        DataLoader(ds, batch_size=None, num_workers=0,  shuffle=False)
+        DataLoader(ds, batch_size=None, num_workers=0,  shuffle=True)
         for ds in [train_segments, test_segments]
     )
 
@@ -143,7 +144,8 @@ class _SyntheticDataset(Dataset):
         slc = slice(batch_start, batch_start + self.batch_size)
         
         slices = [segment.slices if segment.slices is not None else {}] * self.batch_size
-        return segment.inputs[slc], segment.labels[slc], slices      
+        kwargs = segment.kwargs if segment.kwargs is not None else {}
+        return segment.inputs[slc], segment.labels[slc], slices, kwargs      
 
     def __len__(self):
         return len(self.batches)

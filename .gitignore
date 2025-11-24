@@ -16,6 +16,12 @@ logs
 checkpoints
 wandb
 bert/data
+slurm
+penv
+data
+data_old
+wandb_old
+*.out
 
 # Distribution / packaging
 .Python

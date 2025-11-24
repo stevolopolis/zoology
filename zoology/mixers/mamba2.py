@@ -280,7 +280,7 @@ class Mamba2Block(nn.Module):
             assert RMSNorm is not None, "RMSNorm import fails"
 
     def forward(
-        self, hidden_states: Tensor, residual: Optional[Tensor] = None, inference_params=None, 
+        self, hidden_states: Tensor, residual: Optional[Tensor] = None, inference_params=None
         **mixer_kwargs
     ):
         r"""Pass the input through the encoder layer.

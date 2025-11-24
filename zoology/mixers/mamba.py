@@ -232,7 +232,7 @@ class MambaBlock(nn.Module):
             ), "Only LayerNorm and RMSNorm are supported for fused_add_norm"
 
     def forward(
-        self, hidden_states: Tensor, residual: Optional[Tensor] = None, inference_params=None
+        self, hidden_states: Tensor, residual: Optional[Tensor] = None, inference_params=None, **kwargs
     ):
         r"""Pass the input through the encoder layer.
 

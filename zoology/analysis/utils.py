@@ -130,7 +130,7 @@ def fetch_wandb_runs(project_name: str, filters: dict=None, **kwargs) -> pd.Data
             "run_id": run.id,
             "name": run.name,
             "project": run.project,
-            "user": run.user.name,
+            "user": run.entity,
             "state": run.state,
             **flatten(run.config),
             **flatten({**run.summary})

@@ -4,6 +4,8 @@ import importlib.util
 
 import click
 from tqdm import tqdm
+import torch
+from socket import gethostname
 
 from zoology.train import train
 from zoology.config import TrainConfig
@@ -35,6 +37,13 @@ def main(python_file, outdir, name: str, parallelize: bool, gpus: str):
     if gpus is not None:
         os.environ["CUDA_VISIBLE_DEVICES"] = gpus
 
+    rank = int(os.environ["SLURM_PROCID"])
+    n_nodes = int(os.environ["N_NODES"])
+    gpus_per_node = int(os.environ["SLURM_GPUS_ON_NODE"])
+    node_id = rank // gpus_per_node
+    assert gpus_per_node == torch.cuda.device_count()
+    print(f"Hello from rank {node_id} of {n_nodes} on {gethostname()} where there are" \
+        f" {gpus_per_node} allocated GPUs per node.", flush=True)
 
     # Load the given Python file as a module
     spec = importlib.util.spec_from_file_location("config_module", python_file)
@@ -60,10 +69,15 @@ def main(python_file, outdir, name: str, parallelize: bool, gpus: str):
         for config in configs: 
             train(config)
     else:
+        if len(configs) % n_nodes != 0:
+            print(f"Warning: {len(configs)} configs is not divisible by {n_nodes} nodes. Some nodes will have more configs than others.")
+        
         completed = 0
         failed = 0
+        configs = configs[node_id::n_nodes]
         total = len(configs)
-        print(f"Completed: {completed} ({completed / total:0.1%}) | Total: {total}")
+
+        print(f"(Node {node_id}) Completed: {completed} ({completed / total:0.1%}) | Total: {total}")
 
         remote = ray.remote(num_gpus=(1 // MAX_WORKERS_PER_GPU))(execute_config)
         futures = [remote.remote(config) for config in configs]
@@ -76,7 +90,7 @@ def main(python_file, outdir, name: str, parallelize: bool, gpus: str):
                     config.print()
                     print(error)
                 completed += 1
-            print(f"Completed: {completed} ({completed / total:0.1%} -- {failed} failed) | Total: {total}")
+            print(f"(Node {node_id}) Completed: {completed} ({completed / total:0.1%} -- {failed} failed) | Total: {total}")
 
         ray.shutdown()
 

@@ -247,7 +247,7 @@ class DeltaNet(nn.Module):
                 initial_state=recurrent_state,
                 output_final_state=use_cache,
                 cu_seqlens=cu_seqlens,
-                head_first=False,
+                # head_first=False,  ## This is removed in newer versions of fla
                 use_qk_l2norm_in_kernel=True if self.qk_norm == 'l2' else False
             )
         elif mode == 'chunk':
