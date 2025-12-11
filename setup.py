@@ -31,15 +31,15 @@ _OPTIONAL = {
 }
 
 # ensure that torch is installed, and send to torch website if not
-try:
-    import torch
-except ModuleNotFoundError:
-    raise ValueError("Please install torch first: https://pytorch.org/get-started/locally/")
+# try:
+#     import torch
+# except ModuleNotFoundError:
+#     raise ValueError("Please install torch first: https://pytorch.org/get-started/locally/")
 
-try:
-    import transformers
-except ModuleNotFoundError:
-    raise ValueError("Please install transformers first: https://huggingface.co/transformers/installation.html")
+# try:
+#     import transformers
+# except ModuleNotFoundError:
+#     raise ValueError("Please install transformers first: https://huggingface.co/transformers/installation.html")
 
 setup(
     name="zoology",
