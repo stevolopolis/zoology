@@ -22,6 +22,8 @@ data
 data_old
 wandb_old
 *.out
+.vscode/
+models/
 
 # Distribution / packaging
 .Python

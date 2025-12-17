@@ -3,6 +3,8 @@ from torch import nn
 import torch.nn.functional as F
 from einops import rearrange
 import math
+import matplotlib.pyplot as plt
+import time
 
 
 class SelfAttention(nn.Module):
@@ -11,7 +13,7 @@ class SelfAttention(nn.Module):
         self.dropout_p = attention_dropout
         self.gist = gist
 
-    def forward(self, qkv, gist_start=None, n_gists=None):
+    def forward(self, qkv, gist_start=None, n_gists=None, query_start=None, gist_attention_mask=None):
         """Implements the multihead softmax attention.
         Arguments
         ---------
@@ -26,8 +28,21 @@ class SelfAttention(nn.Module):
             torch.full((seqlen, seqlen), -10000.0, device=scores.device), 1
         )
         # mask all the tokens prior to gist start from tokens after gist_start + n_gists
-        if (gist_start is not None and n_gists is not None) and self.gist:
-            causal_mask[gist_start+n_gists:, :gist_start] = -10000.0
+        if self.gist:
+            if gist_attention_mask is not None and query_start is not None:
+                gist_mask = gist_attention_mask
+                gist_mask = gist_mask[:, None, :].repeat(1, causal_mask.shape[1], 1)
+                gist_mask[:, :, query_start:] = True
+                gist_mask[:, :query_start] = True
+                causal_mask = causal_mask[None, ...].repeat(q.shape[0], 1, 1)
+                causal_mask[~gist_mask] = -10000.0
+                causal_mask = causal_mask[:, None, ...]  # expand the head dimension
+            elif gist_start is not None and n_gists is not None:
+                causal_mask[gist_start+n_gists:, :gist_start] = -10000.0
+            else:
+                raise NotImplementedError("GistAttention incorrectly implemented.")
+
+        print(scores.shape, causal_mask.shape)
         scores = scores + causal_mask.to(dtype=scores.dtype)
         attention = torch.softmax(scores, dim=-1, dtype=v.dtype)
         attention_drop = F.dropout(attention, self.dropout_p if self.training else 0.0)

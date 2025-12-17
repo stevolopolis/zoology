@@ -144,7 +144,7 @@ class _SyntheticDataset(Dataset):
         slc = slice(batch_start, batch_start + self.batch_size)
         
         slices = [segment.slices if segment.slices is not None else {}] * self.batch_size
-        kwargs = segment.kwargs if segment.kwargs is not None else {}
+        kwargs = {k: v[slc] if isinstance(v, torch.Tensor) else v for k, v in segment.kwargs.items()} if segment.kwargs is not None else {}
         return segment.inputs[slc], segment.labels[slc], slices, kwargs      
 
     def __len__(self):

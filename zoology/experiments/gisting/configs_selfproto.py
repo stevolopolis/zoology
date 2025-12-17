@@ -1,3 +1,4 @@
+from asyncio import FIRST_EXCEPTION
 import uuid
 import numpy as np
 from zoology.config import TrainConfig, ModelConfig, ModuleConfig, DataConfig, LoggerConfig
@@ -5,19 +6,29 @@ from zoology.data.mvqar import MVQARConfig
 
 
 sweep_id = uuid.uuid4().hex[:6]
-sweep_name = "infshots" + sweep_id
+sweep_name = "selfproto" + sweep_id
 
 n_dims = 2
 n_clusters = 2
+n_train_clusters = [2]
+n_test_clusters = [2, 4]
+n_train_kv_per_c = [4, 8]
+n_test_kv_per_c = [4, 8, 16]
+# n_train_clusters = [2, 4]
+# n_test_clusters = [4, 8, 16, 32]
+# n_train_kv_per_c = [2, 4, 8]
+# n_test_kv_per_c = [4, 8, 16, 32, 64, 128, 256]
 VOCAB_SIZE = 16_384
 SEQ_LEN_MULT = (n_dims + 1) / 2
 ADD_GISTS = False
 ADD_GISTS_LEN = n_clusters if ADD_GISTS else 0
+RANDOM_GISTS = False
+FIRST_OCCURENCE = False
 
 # 1. First we are going to create the data configuration
 train_configs = []
-for _n_clusters in [2, 4]:
-    for _num_kv_per_c in [4, 8, 16, 32]:
+for _n_clusters in n_train_clusters:
+    for _num_kv_per_c in n_train_kv_per_c:
         _ADD_GISTS_LEN = _n_clusters if ADD_GISTS else 0
         num_kv_pairs = _num_kv_per_c * _n_clusters
         input_seq_len = num_kv_pairs * (n_dims + 1) * (2 if _num_kv_per_c >= 256 else 3) + _ADD_GISTS_LEN
@@ -29,11 +40,13 @@ for _n_clusters in [2, 4]:
             n_dims=n_dims, 
             n_clusters=_n_clusters, 
             add_gists=ADD_GISTS,
+            random_gists=RANDOM_GISTS,
+            first_occurence=FIRST_OCCURENCE,
         ))
 
 test_configs = []
-for _n_clusters in [2, 4, 8]:
-    for _num_kv_per_c in [4, 8, 16, 32, 64, 128, 256]:  # n-shots
+for _n_clusters in n_test_clusters:
+    for _num_kv_per_c in n_test_kv_per_c:
         _ADD_GISTS_LEN = _n_clusters if ADD_GISTS else 0
         num_kv_pairs = _num_kv_per_c * _n_clusters
         input_seq_len = num_kv_pairs * (n_dims + 1) * (2 if _num_kv_per_c > 128 else 3) + _ADD_GISTS_LEN
@@ -45,17 +58,19 @@ for _n_clusters in [2, 4, 8]:
             n_dims=n_dims, 
             n_clusters=_n_clusters, 
             add_gists=ADD_GISTS,
+            random_gists=RANDOM_GISTS,
+            first_occurence=FIRST_OCCURENCE,
         ))
 
 input_seq_len=max([c.input_seq_len for c in train_configs + test_configs])
-batch_size = 64
+batch_size = 128
 data = DataConfig(
     train_configs=train_configs,
     test_configs=test_configs,
     # can pass a tuple if you want a different batch size for train and test
     batch_size=(batch_size, batch_size / 8),
     cache_dir="/scratch/sl12886/tts_icl/zoology/data",
-    force_cache=False
+    force_cache=True
 )
 
 # 2. Next, we are going to collect all the different model configs we want to sweep
@@ -77,7 +92,17 @@ conv_mixer = dict(
 )
 
 
-from zoology.experiments.models_repo import add_attention, add_based, add_mamba2, add_rwkv7, add_delta_net, add_gla, add_gated_delta_net, add_deepseek_nsa, add_gistsa, add_gsa
+from zoology.experiments.models_repo import (
+    add_attention, 
+    add_based, 
+    add_mamba2, 
+    add_rwkv7, 
+    add_delta_net, 
+    add_gla, 
+    add_gated_delta_net, 
+    add_deepseek_nsa, 
+    add_gistsa, add_gsa, add_gist_attention
+)
 
 models = add_based(models, conv_mixer, input_seq_len, model_factory_kwargs)
 # models = add_delta_net(models, conv_mixer, input_seq_len, model_factory_kwargs)
@@ -85,19 +110,20 @@ models = add_rwkv7(models, conv_mixer, input_seq_len, model_factory_kwargs)
 models = add_gla(models, conv_mixer, input_seq_len, model_factory_kwargs)
 models = add_gated_delta_net(models, conv_mixer, input_seq_len, model_factory_kwargs)
 models = add_deepseek_nsa(models, conv_mixer, input_seq_len, model_factory_kwargs)
-models = add_gistsa(models, conv_mixer, input_seq_len, model_factory_kwargs)
 models = add_gsa(models, conv_mixer, input_seq_len, model_factory_kwargs)
-models = add_attention(models, conv_mixer, input_seq_len, model_factory_kwargs)
+# models = add_attention(models, conv_mixer, input_seq_len, model_factory_kwargs)
+models = add_gist_attention(models, conv_mixer, input_seq_len, model_factory_kwargs)
+models = add_gistsa(models, conv_mixer, input_seq_len, model_factory_kwargs, self_proto=True)
 
 # convenience for filtering out 
-included = ["gla"]
+included = ["gistsa"]
 models = [m for m in models if any([i in m.name for i in included])]
 
 
 # 3. Finally we'll create a train config for each
 configs = []
 for model in models:
-    for lr in np.logspace(-3, -1.5, 4)[-1:]:
+    for lr in np.logspace(-3, -1.5, 4):
         run_id = f"{model.name}-{model.d_model}-lr{lr:.1e}"
         config = TrainConfig(
             model=model,
@@ -107,7 +133,7 @@ for model in models:
             logger=LoggerConfig(
                 project_name="zoology",
                 entity="stevenluots",
-                group="gla-inf-shots-nogist",
+                group="selfProto-lite",
             ),
             slice_keys=[["num_kv_pairs", "n_dims", "n_clusters"]],
             sweep_id=sweep_name,

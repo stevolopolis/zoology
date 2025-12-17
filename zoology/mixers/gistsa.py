@@ -44,6 +44,7 @@ class GistSlotAttention(nn.Module):
         use_norm: bool = True,
         layer_idx: int | None = None,
         scale: float | None = 1.,
+        self_proto: bool = False,
         **kwargs,
     ) -> GistSlotAttention:
         super().__init__()
@@ -75,6 +76,10 @@ class GistSlotAttention(nn.Module):
         if num_slots is None:
             num_slots = self.head_k_dim
         self.num_slots = num_slots
+        if self_proto:
+            self.num_slots = 1  # We are retrofitting the slot weight matrix to a binary classifier
+        
+        self.self_proto = self_proto
 
         self.layer_idx = layer_idx
 
@@ -98,7 +103,7 @@ class GistSlotAttention(nn.Module):
         self.q_proj = nn.Linear(self.d_model, self.key_dim, bias=False)
         self.k_proj = nn.Linear(self.d_model, self.key_dim_per_group, bias=False)
         self.v_proj = nn.Linear(self.d_model, self.value_dim_per_group, bias=False)
-        self.f_proj = nn.Linear(self.d_model, self.num_kv_heads * self.num_slots, bias=False)
+        self.f_proj = nn.Linear(self.d_model, self.num_slots, bias=False)
 
         if use_short_conv:
             self.conv_size = conv_size
@@ -133,6 +138,7 @@ class GistSlotAttention(nn.Module):
         output_attentions: bool | None = False,
         gist_start: int | None = None,
         n_gists: int | None = None,
+        gist_attention_mask: torch.Tensor | None = None,
         **kwargs: Unpack[dict],
     ) -> tuple[torch.Tensor, torch.Tensor | None, Cache | None]:
         if attention_mask is not None:
@@ -186,16 +192,26 @@ class GistSlotAttention(nn.Module):
         q = rearrange(q, '... (h d) -> ... h d', d=self.head_k_dim)
         k = rearrange(k, '... (h d) -> ... h d', d=self.head_k_dim)
         v = rearrange(v, '... (h d) -> ... h d', d=self.head_v_dim)
-        f = rearrange(f, '... (h m) -> ... h m', m=self.num_slots)  # [B, L, H, M]
-
 
         if self.feature_map is not None:
             q, k = map(lambda x: self.feature_map(x), (q, k))
         v = F.silu(v)
 
         # Extract gist Qs (last M tokens)
-        if gist_start is not None and n_gists is not None:
-            gist_qs = q[:, gist_start:gist_start+n_gists]
+        if (gist_start is not None and n_gists is not None) or (gist_attention_mask is not None):
+            if self.self_proto:
+                # f = f.squeeze(-1)
+                # gist_gates = F.sigmoid(f)
+                # # BUG: this is only a temporary solution until we have a way to deal with variable #slots along the batch and time dimension
+                # gist_selects = torch.topk(gist_gates, n_gists, dim=1)[1]
+                # gist_qs = q[torch.arange(q.shape[0], device=q.device)[:, None], gist_selects]
+                gist_qs = q
+            else:
+                if gist_attention_mask is not None:  # Reuse label tokens as gistLA tokens
+                    gist_qs = q[gist_attention_mask].reshape(q.shape[0], -1, q.shape[2], q.shape[3])
+                elif gist_start is not None and n_gists is not None:  # Use extra tokens in [gist_start:gist_start+n_gists] as gistLA tokens
+                    gist_qs = q[:, gist_start:gist_start+n_gists]
+
             # Calculate gist attn weights
             gist_qs = torch.einsum("bmhd->bhmd", gist_qs)  # [B, G, H, D] -> [B, H, G, D]
             k_ = torch.einsum("blhd->bhdl", k)  # [B, L, H, D] -> [B, H, D, L]

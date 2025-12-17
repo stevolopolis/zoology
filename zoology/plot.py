@@ -185,10 +185,10 @@ def plot_fine_acc2shots(
     )
 
     # Filter incomplete runs (e.g. attn d_model = 8)
-    attn_sizes = df_long[df_long["model.name"] == "attention"]["state_size"].unique()
-    df_long = df_long[(df_long["model.name"] != "attention") | (df_long["state_size"] != attn_sizes.min())]
-    gistsa_sizes = df_long[df_long["model.name"] == "gistsa"]["state_size"].unique()
-    df_long = df_long[(df_long["model.name"] != "gistsa") | (df_long["state_size"] != gistsa_sizes.min())]
+    # attn_sizes = df_long[df_long["model.name"] == "attention"]["state_size"].unique()
+    # df_long = df_long[(df_long["model.name"] != "attention") | (df_long["state_size"] != attn_sizes.min())]
+    # gistsa_sizes = df_long[df_long["model.name"] == "gistsa"]["state_size"].unique()
+    # df_long = df_long[(df_long["model.name"] != "gistsa") | (df_long["state_size"] != gistsa_sizes.min())]
 
     # Extract n_clusters, n_dims, and num_kv_pairs from the metric column
     df_long["n_clusters"] = df_long["metric"].str.extract(r'(\d+)\)$').astype(int)
@@ -221,6 +221,8 @@ def plot_fine_acc2shots(
         y="accuracy",
         x="n_shots",
         hue="model.name",
+        # hue="logger.group",
+        style="logger.group",
         size="state_size",
         size_norm=size_norm,
         sizes=(20, 300),
@@ -338,28 +340,42 @@ if __name__ == "__main__" :
             # "inf4a8212",
         # ],
         # inf-shots
+        # sweep_id=[
+        #     # gla
+        #     "infshots307426",
+        #     "infshots3c677f",
+        #     "infshots508fd0",
+        #     "infshots72b6ad",
+        #     "infshotsb9f6e4",
+        #     "infshotsf29885",
+        #     # gistsa
+        #     "infshots051d4c",
+        #     "infshots2b2945",
+        #     "infshots5eea7b",
+        #     "infshotsea888e",
+        #     "infshotsf16cf2",
+        #     # attn
+        #     "infshots2f2acd",
+        #     "infshotse0dc80",
+        #     "infshotse7cab2",
+        #     # gdn
+        #     "infshots599f5a",
+        #     "infshotsb21462",
+        #     "infshotsb59585",
+        # ],
+        # inf-shots-random_gists
+        # sweep_id=[
+        #     "infshotsf06b3b",  # random
+        #     "infshots52f5a1"  # label
+        # ],
+        # gist vs gistsa ^ labelGists vs extraGists
         sweep_id=[
-            # gla
-            "infshots307426",
-            "infshots3c677f",
-            "infshots508fd0",
-            "infshots72b6ad",
-            "infshotsb9f6e4",
-            "infshotsf29885",
-            # gistsa
-            "infshots051d4c",
-            "infshots2b2945",
-            "infshots5eea7b",
-            "infshotsea888e",
-            "infshotsf16cf2",
-            # attn
-            "infshots2f2acd",
-            "infshotse0dc80",
-            "infshotse7cab2",
-            # gdn
-            "infshots599f5a",
-            "infshotsb21462",
-            "infshotsb59585",
+            "infshots10d597",  # extraGists
+            "infshots66629b",  # labelGists
+            "infshotse66661",
+            "infshotsc49a8e",  # labelGists (first occurence)
+            "infshotsdb7b79",
+            "selfproto2a07c4",  # selfProto-lite
         ],
         project_name="zoology"
     )
@@ -371,9 +387,9 @@ if __name__ == "__main__" :
 
     # df = df[df["state_size"] > 2 ** 12]
 
-    plot(df=df)
+    # plot(df=df)
     # 2d2c
-    plt.savefig("results/inf-shots.pdf")
+    # plt.savefig("results/inf-shots.pdf")
     # State-size sweep for gla and gsa
     # plt.savefig("results/mqar-gla-sweep.pdf")
     # Attention sweep
@@ -381,9 +397,9 @@ if __name__ == "__main__" :
 
     # plot_fine(df=df, ood_test=False)
     # plot_fine_acc2clusters(df=df, ood_test=False)
-    for n_clusters in [2, 4, 8]:
+    for n_clusters in [2, 4]:
         plot_fine_acc2shots(df=df, n_clusters=n_clusters)
-        plt.savefig(f"results/inf-shots_nclusters{n_clusters}_fine.pdf")
+        plt.savefig(f"results/gistExp-nclusters{n_clusters}-fine.pdf")
     # State-size sweep for gla and gsa
     # plt.savefig("results/mqar-gla-sweep_fine.pdf")
     # Attention sweep

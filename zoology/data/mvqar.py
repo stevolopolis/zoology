@@ -1,7 +1,7 @@
 
 import numpy as np
 import torch
-
+from functools import partial
 from sklearn.datasets import make_blobs
 
 from zoology.config import DataSegmentConfig
@@ -16,6 +16,9 @@ class MVQARConfig(DataSegmentConfig):
     n_dims: int=2
     n_clusters: int=3
     add_gists: bool=False
+    random_gists: bool=False
+    first_occurence: bool=False
+    gist_mask: bool=False
 
     def build(self, seed: int) -> DataSegment:
         return mvq_ar(**self.model_dump(), seed=seed)
@@ -32,6 +35,9 @@ def mvq_ar(
     n_dims: int=2,
     n_clusters: int=3,
     add_gists: bool=False,
+    random_gists: bool=False,
+    first_occurence: bool=False,
+    gist_mask: bool=False,
     **kwargs
 ) -> DataSegment:
     """
@@ -167,7 +173,12 @@ def mvq_ar(
     kvs[:, n_dims::(1+n_dims)] = values
     
     # gist tokens
-    gists = np.apply_along_axis(np.unique, 1, values)
+    if not random_gists:
+        # Use the target values as the gist init
+        gists = np.apply_along_axis(np.unique, 1, values)
+    else:
+        # Use a random value from the kvs per target value as the gist init
+        gists = np.apply_along_axis(np.random.choice, 1, kvs, replace=False, size=n_clusters)
 
     # compute power law
     space = (input_seq_len - context_size - (n_clusters if add_gists else 0)) // (1+n_dims)
@@ -202,11 +213,48 @@ def mvq_ar(
     # replace all the 0 with random values
     if random_non_queries:
         inputs[inputs == 0] = torch.randint(vocab_size, size=inputs.shape)[inputs == 0]
+
+
+    if add_gists:
+        if gist_mask:
+            # Construct gist attention mask
+            gist_attention_mask = torch.zeros_like(inputs, dtype=torch.bool)
+            gist_attention_mask[:, context_size : context_size + n_clusters] = True
+        else:
+            gist_attention_mask = None
+        kwargs = {
+            "gist_start": context_size,
+            "n_gists": n_clusters,
+            "query_start": context_size + n_clusters,
+            "gist_attention_mask": gist_attention_mask
+        }
+    else:
+        if gist_mask:
+            # Construct gist attention mask
+            gist_attention_mask = torch.zeros_like(inputs, dtype=torch.bool)
+            if first_occurence:
+                # NOTE: using the first occurence of each label
+                unique_label_locs = np.apply_along_axis(lambda arr: np.unique(arr, return_index=True)[1], 1, values)
+            else:
+                # NOTE: using the last occurence of each label
+                unique_label_locs = np.apply_along_axis(lambda arr: -1 - np.unique(np.flip(arr), return_index=True)[1], 1, values)
+            unique_label_mask = np.zeros_like(values, dtype=np.bool)
+            unique_label_mask[np.arange(values.shape[0])[:, None], unique_label_locs] = True
+            gist_attention_mask[:, n_dims:context_size:(1+n_dims)] = torch.tensor(unique_label_mask)
+        else:
+            gist_attention_mask = None
+        kwargs = {
+            "gist_start": context_size,
+            "n_gists": n_clusters,
+            "query_start": context_size,
+            "gist_attention_mask": gist_attention_mask
+        }
+
     return DataSegment(
         inputs, 
         labels, 
         slices={"num_kv_pairs": num_kv_pairs, "input_seq_len": input_seq_len, "n_dims": n_dims, "n_clusters": n_clusters},
-        kwargs={"gist_start": context_size, "n_gists": n_clusters} if add_gists else None
+        kwargs=kwargs
     )
 
 

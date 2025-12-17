@@ -1,8 +1,11 @@
 import argparse
+import os
 import random
 from datetime import datetime
 from typing import List, Union
 import pandas as pd
+import json
+import hashlib
 
 import torch
 import torch.nn as nn
@@ -13,7 +16,7 @@ import numpy as np
 from einops import rearrange
 
 from zoology.data.utils import prepare_data
-from zoology.config import TrainConfig
+from zoology.config import TrainConfig, ModelConfig
 from zoology.model import LanguageModel
 from zoology.logger import WandbLogger
 from zoology.utils import set_determinism
@@ -141,7 +144,7 @@ class Trainer:
             self.logger.log({"epoch": epoch_idx, **metrics})
         return metrics
 
-    def fit(self):
+    def fit(self, model_configs: ModelConfig):
         self.model.to(self.device)
         self.loss_fn = nn.CrossEntropyLoss()
         self.optimizer = optim.AdamW(
@@ -167,6 +170,24 @@ class Trainer:
                 break
 
             self.scheduler.step()
+
+        self.save(model_configs)
+
+    def save(self, model_configs: ModelConfig):
+        # hash the model configs
+        config_hash = hashlib.md5(
+            json.dumps(model_configs.model_dump(), sort_keys=True).encode()
+        ).hexdigest()
+        # create save dir
+        path = f"models/{config_hash}"
+        os.makedirs(path, exist_ok=True)
+        print(f"Saving model to {path}")
+        # Save the model weights
+        torch.save(self.model.state_dict(), os.path.join(path, "model.pth"))
+        # Save the model configs
+        with open(os.path.join(path, "model_configs.json"), "w") as f:
+            json.dump(model_configs.model_dump(), f)
+
 
 
 def compute_metrics(
@@ -212,7 +233,7 @@ def train(config: TrainConfig):
         device="cuda" if torch.cuda.is_available() else "cpu",
         logger=logger,
     )
-    task.fit()
+    task.fit(config.model)
     logger.finish()
 
 

@@ -40,7 +40,7 @@ def add_attention(models, conv_mixer, input_seq_len, model_factory_kwargs):
 def add_gist_attention(models, conv_mixer, input_seq_len, model_factory_kwargs):
     # for n_layers in [2, 4, 8, 12]:
         # d_model = 128
-    for d_model in [512, 256, 128, 64, 32, 16, 8]:
+    for d_model in [256]:
         n_layers = 2
         attention_mixer = dict(
             name="zoology.mixers.attention.MHA",
@@ -60,7 +60,7 @@ def add_gist_attention(models, conv_mixer, input_seq_len, model_factory_kwargs):
             n_layers=n_layers,
             sequence_mixer=mixer,
             max_position_embeddings=0,
-            name="attention",
+            name="gist_attention",
             **model_factory_kwargs
         )
         models.append(model)
@@ -398,7 +398,7 @@ def add_gsa(models, conv_mixer, input_seq_len, model_factory_kwargs):
 
 
 # Gist slot attention
-def add_gistsa(models, conv_mixer, input_seq_len, model_factory_kwargs):
+def add_gistsa(models, conv_mixer, input_seq_len, model_factory_kwargs, self_proto=False):
     block_type = "TransformerBlock"
     # for d_model in [64, 128, 256]:
     #     num_slots = d_model // 2
@@ -412,6 +412,7 @@ def add_gistsa(models, conv_mixer, input_seq_len, model_factory_kwargs):
                 "use_short_conv": False, # Tune (False default),
                 "mode": "fused_recurrent",
                 # "mode": "chunk",
+                "self_proto": self_proto,
             }
         )
         mixer = dict(
