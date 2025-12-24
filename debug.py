@@ -11,17 +11,20 @@ from zoology.train import Trainer
 import numpy as np
 import matplotlib.pyplot as plt
 import torch
+from einops import rearrange
 
 
 
 DEVICE = "cuda" if torch.cuda.is_available() else "cpu"
 VOCAB_SIZE = 16_192
 n_dims = 2
-n_clusters = 3
-num_kv_pairs = 16
+n_clusters = 8
+num_kv_pairs = 32
 add_gists = False
 input_seq_len = (n_dims + 1) * num_kv_pairs * 2 + (n_clusters if add_gists else 0)
+# input_seq_len = 64
 random_gists = False
+manual_gist_mode = "first_unique"
 
 
 config = MVQARConfig(
@@ -36,7 +39,8 @@ config = MVQARConfig(
     n_unique_values=n_clusters,
     # min_keys=False,
     add_gists=add_gists,
-    random_gists=random_gists,
+    random_gists=random_gists,  
+    manual_gist_mode=manual_gist_mode,
 )
 
 
@@ -115,16 +119,48 @@ def test_model():
     _, test_dataloader = prepare_data(data)
 
     inputs, targets, slices, kwargs = next(iter(test_dataloader))
+    inputs2 = inputs.clone()
+    targets2 = targets.clone()
 
-    kwargs1 = {k: v for k, v in kwargs.items() if not isinstance(v, torch.Tensor)}
-    kwargs2 = {k: v.to(DEVICE) if isinstance(v, torch.Tensor) else v for k, v in kwargs.items()}
+    kwargs1 = {k: v.to(DEVICE) if isinstance(v, torch.Tensor) else v for k, v in kwargs.items()}
 
     inputs, targets = inputs.to(DEVICE), targets.to(DEVICE)
+    model.mode = "fused_recurrent"
     logits1 = model(inputs, **kwargs1)
-    logits2 = model(inputs, **kwargs2)
+    logits1.sum().backward()
+    grad1 = next(model.parameters()).grad
+
+    inputs2, targets2 = inputs2.to(DEVICE), targets2.to(DEVICE)
+    model.mode = "chunk"
+    logits2 = model(inputs2, **kwargs1)
+    logits2.sum().backward()
+    grad2 = next(model.parameters()).grad
+
+    print(kwargs1["gist_idx"])
 
     print(torch.allclose(logits1, logits2))
     print(torch.abs(logits1 - logits2).mean())
+
+    print(torch.allclose(grad1, grad2))
+    print(torch.abs(grad1 - grad2).mean())
+    print(grad1)
+    print(grad2)
+
+    for name, p in model.named_parameters():
+        grad = p.grad
+        print(name)
+        if grad is None:
+            print("No gradient")
+            continue
+        print(grad.shape)
+        print(grad)
+        grad = grad.cpu().detach().numpy()
+        if len(grad.shape) == 2:
+            plt.matshow(grad)
+            plt.colorbar()
+            plt.savefig(f"debug_{name}.pdf")
+            plt.close()
+
 
 
 def test_trainer():
@@ -137,7 +173,7 @@ def test_trainer():
 
 
 def test_fla_gistsa_naive():
-    from fla.ops.gistsa.naive import naive_recurrent_gistsa
+    from fla.ops.gistsa import naive_recurrent_gistsa, chunk_gistsa
     B, H, T, D, M = 2, 2, 8, 4, 3
     q = torch.randn(B, H, T, D)
     k = torch.randn(B, H, T, D)
@@ -146,31 +182,74 @@ def test_fla_gistsa_naive():
     g = torch.randn(B, H, T, M)
     gist_idx = torch.tensor([[0, 1, 2],
                              [1, 2, 3]])
-    o = naive_recurrent_gistsa(q, k, v, s, g, gist_idx=gist_idx)
+
+    # test fwd
+    o1 = naive_recurrent_gistsa(q, k, v, s, g, gist_idx=gist_idx)
+    o2 = chunk_gistsa(q, k, v, s, g, gist_idx=gist_idx)
+
+    print(torch.allclose(o1, o2))
+    print(torch.abs(o1 - o2).mean())
+
+    # test bwd
 
 
-def test_fla_softmax_naive():
-    from fla.ops.gistsa.chunk import naive_softmax_fwd, naive_softmax_bwd, softmax_fwd, softmax_bwd
-    B, H, T, D, M = 2, 2, 8, 4, 3
-    qk = torch.randn(B, H, T, M)
-    gist_idx = torch.tensor([[0, 1, 2],
-                             [1, 2, 3]])
+def test_gistsa_masks():
+    B, H, T, M = 2, 2, 64, 64
+    gist_attn = torch.randn(B, H, M, T)
+    gist_idx = torch.arange(M).expand(B, -1)
 
-    p1 = naive_softmax_fwd(qk, gist_idx)
-    p2 = softmax_fwd(qk, dtype=torch.float)
-    print(torch.allclose(p1, p2))
-    print(torch.abs(p1 - p2).mean())
+    gist_attn = gist_attn.masked_fill(torch.arange(T, device=gist_attn.device)[None, None, None, :] == gist_idx[:, None, :, None], +float('inf'))
+    gist_attn = gist_attn.masked_fill(torch.arange(T, device=gist_attn.device)[None, None, None, :] < gist_idx[:, None, :, None], -float('inf'))
+    gist_attn = torch.nn.functional.sigmoid(gist_attn)
 
-    dqv = torch.randn(B, H, T, D)
-    dok1 = naive_softmax_bwd(p1, dqv, gist_idx)
-    dok2 = softmax_bwd(p2, dqv, dtype=torch.float)
-    print(torch.allclose(dok1, dok2))
+    plt.matshow(gist_attn[0, 0].cpu().numpy())
+    plt.colorbar()
+    plt.savefig("debug.pdf")
+    plt.close()
+
+    print(gist_attn[0, 0])
+
+
+def test_pseudo_attn():
+    """
+    For this test to pass, you need to:
+    1. set the gate_logit_normalizer to 1.0 in the GistSlotAttention constructor
+    2. set the scale to None in the GistSlotAttention constructor
+    3. comment out the rms_norm_linear call in the GistSlotAttention forward method
+    4. change the second gist_attn mask to != instead of <
+    5. return q, k, v, s in the GistSlotAttention forward method
+    """
+    from zoology.mixers.gistsa import GistSlotAttention
+    from zoology.mixers.attention import SelfAttention
+
+    D = 256
+    B, H, T, M = 2, 2, 64, 64
+    hidden_states = torch.randn(B, T, D, device="cuda")
+    gist_idx = torch.arange(M, device="cuda").expand(B, -1)
+    gist_idx[:, ::2] = 0
+    
+    gsa = GistSlotAttention(d_model=D, mode="fused_recurrent", gate_logit_normalizer=1.0, scale=None).to("cuda")
+    attn = SelfAttention(gist=True).to("cuda")
+
+    o, q, k, v, s = gsa(hidden_states, gist_idx=gist_idx)
+    o2 = attn(qkv=torch.stack([q, k, v], dim=2), gist_idx=gist_idx)
+    o2 = rearrange(o2, "... h d -> ... (h d)")
+    print(torch.allclose(o, o2))
+    print(torch.abs(o - o2).mean())
+
+    plt.matshow(s[0, :, 0].cpu().detach().numpy())
+    plt.colorbar()
+    plt.savefig("test.pdf")
+    plt.close()
+
 
 
 if __name__ == "__main__":
     # test_data()
-    # test_model()
+    test_model()
     # test_gist_mask()
     # test_trainer()
     # test_fla_gistsa_naive()
-    test_fla_softmax_naive()
+    # test_fla_softmax_naive()
+    # test_gistsa_masks()
+    # test_pseudo_attn()

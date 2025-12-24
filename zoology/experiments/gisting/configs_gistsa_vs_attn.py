@@ -23,7 +23,7 @@ SEQ_LEN_MULT = (n_dims + 1) / 2
 ADD_GISTS = False
 ADD_GISTS_LEN = n_clusters if ADD_GISTS else 0
 RANDOM_GISTS = False
-FIRST_OCCURENCE = False
+MANUAL_GIST_MODE = "full"
 
 # 1. First we are going to create the data configuration
 train_configs = []
@@ -41,7 +41,7 @@ for _n_clusters in n_train_clusters:
             n_clusters=_n_clusters, 
             add_gists=ADD_GISTS,
             random_gists=RANDOM_GISTS,
-            first_occurence=FIRST_OCCURENCE,
+            manual_gist_mode=MANUAL_GIST_MODE,
         ))
 
 test_configs = []
@@ -59,7 +59,7 @@ for _n_clusters in n_test_clusters:
             n_clusters=_n_clusters, 
             add_gists=ADD_GISTS,
             random_gists=RANDOM_GISTS,
-            first_occurence=FIRST_OCCURENCE,
+            manual_gist_mode=MANUAL_GIST_MODE,
         ))
 
 input_seq_len=max([c.input_seq_len for c in train_configs + test_configs])
@@ -68,7 +68,7 @@ data = DataConfig(
     train_configs=train_configs,
     test_configs=test_configs,
     # can pass a tuple if you want a different batch size for train and test
-    batch_size=(batch_size, batch_size / 8),
+    batch_size=(batch_size, batch_size / 4),
     cache_dir="/scratch/sl12886/tts_icl/zoology/data",
     force_cache=True
 )
@@ -111,12 +111,12 @@ models = add_gla(models, conv_mixer, input_seq_len, model_factory_kwargs)
 models = add_gated_delta_net(models, conv_mixer, input_seq_len, model_factory_kwargs)
 models = add_deepseek_nsa(models, conv_mixer, input_seq_len, model_factory_kwargs)
 models = add_gsa(models, conv_mixer, input_seq_len, model_factory_kwargs)
-models = add_attention(models, conv_mixer, input_seq_len, model_factory_kwargs)
-# models = add_gist_attention(models, conv_mixer, input_seq_len, model_factory_kwargs)
-models = add_gistsa(models, conv_mixer, input_seq_len, model_factory_kwargs, self_proto=True)
+# models = add_attention(models, conv_mixer, input_seq_len, model_factory_kwargs)
+models = add_gist_attention(models, conv_mixer, input_seq_len, model_factory_kwargs)
+models = add_gistsa(models, conv_mixer, input_seq_len, model_factory_kwargs, self_proto=True, gate_logit_normalizer=8.0)
 
 # convenience for filtering out 
-included = ["gistsa", "attention"]
+included = ["gistsa"]
 models = [m for m in models if any([i in m.name for i in included])]
 
 
@@ -133,9 +133,9 @@ for model in models:
             logger=LoggerConfig(
                 project_name="zoology",
                 entity="stevenluots",
-                group="gist_vs_attn",
+                group="gistExp3-auto",
             ),
-            slice_keys=[["num_kv_pairs", "n_dims", "n_clusters"]],
+            slice_keys=[["num_kv_pairs", "n_dims", "n_clusters", "n_gists", "input_seq_len"]],
             sweep_id=sweep_name,
             run_id=run_id,
             predictions_path=f"/scratch/sl12886/tts_icl/zoology/predictions/{run_id}",

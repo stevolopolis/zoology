@@ -119,6 +119,7 @@ def fetch_wandb_runs(project_name: str, filters: dict=None, **kwargs) -> pd.Data
         project_name,
         filters=filters
     )
+
     
     # Create a list to store run data
     run_data = []
@@ -126,12 +127,14 @@ def fetch_wandb_runs(project_name: str, filters: dict=None, **kwargs) -> pd.Data
     # Iterate through each run and extract relevant data
     for run in runs:
         
+        run.load_full_data(force=True)
         data = {
             "run_id": run.id,
             "name": run.name,
             "project": run.project,
             "user": run.entity,
             "state": run.state,
+            "group": run.group,
             **flatten(run.config),
             **flatten({**run.summary})
         }

@@ -172,13 +172,15 @@ def plot_fine_acc2shots(
 ):
     model_columns = [c for c in df.columns if "accuracy-" in c]
     idx = df.groupby(
-        ["state_size", "model.name", "logger.group"]
+        ["state_size", "model.name", "group"]
     )[metric].idxmax(skipna=True).dropna()
     df = df.loc[idx]
     # plot_df = df
 
+    new_logger = False   # len([c for c in df.columns if "slice_keys" in c]) == 5
+
     df_long = df.melt(
-        id_vars=["state_size", "model.name", "logger.group"],
+        id_vars=["state_size", "model.name", "group"],
         value_vars=model_columns,
         var_name="metric",
         value_name="accuracy",
@@ -191,17 +193,21 @@ def plot_fine_acc2shots(
     # df_long = df_long[(df_long["model.name"] != "gistsa") | (df_long["state_size"] != gistsa_sizes.min())]
 
     # Extract n_clusters, n_dims, and num_kv_pairs from the metric column
-    df_long["n_clusters"] = df_long["metric"].str.extract(r'(\d+)\)$').astype(int)
+    df_long["n_clusters"] = df_long["metric"].str.extract(r'(\d+)\)').astype(int)
     df_long["n_dims"] = df_long["metric"].str.extract(r',\s+(\d+),').astype(int)
     df_long["num_kv_pairs"] = df_long["metric"].str.extract(r'\((\d+)').astype(int)
+    if new_logger:
+        df_long["n_gists"] = df_long["metric"].str.split('-').str[2].astype(int)
+        df_long["input_seq_len"] = df_long["metric"].str.split('-').str[3].astype(int)
+    else:
+        df_long["n_gists"] = n_clusters
+        df_long["input_seq_len"] = df_long["num_kv_pairs"] * 3 * 2 / 12288
     df_long["n_shots"] = df_long["num_kv_pairs"] / df_long["n_clusters"]
     # Dynamic state size (for attention and gistsa)
     # gistsa: state_size = state_size * n_clusters
     # attention: state_size = state_size * seq_len (seq_len is the last number in the metric column)
-    gistsa_mask = df_long["model.name"] == "gistsa"
-    df_long.loc[gistsa_mask, "state_size"] = df_long.loc[gistsa_mask, "state_size"] * df_long.loc[gistsa_mask, "n_clusters"]
-    gistattn_mask = df_long["model.name"] == "attention"
-    df_long.loc[gistattn_mask, "state_size"] = df_long.loc[gistattn_mask, "state_size"] / 12288 * df_long.loc[gistattn_mask, "num_kv_pairs"] * 3 * 2
+    gist_mask = (df_long["model.name"] == "gistsa") | (df_long["model.name"] == "attention") | (df_long["model.name"] == "gistAttn")
+    df_long.loc[gist_mask, "state_size"] = df_long.loc[gist_mask, "state_size"] * df_long.loc[gist_mask, "n_gists"]
 
     # Log scale state size
     df_long["state_size (2^x)"] = np.log2(df_long["state_size"])#.astype(int)
@@ -222,8 +228,8 @@ def plot_fine_acc2shots(
         x="n_shots",
         hue="model.name",
         # hue="logger.group",
-        style="logger.group",
-        size="state_size",
+        style="group",
+        # size="state_size",
         size_norm=size_norm,
         sizes=(20, 300),
         kind="scatter",
@@ -369,13 +375,24 @@ if __name__ == "__main__" :
         #     "infshots52f5a1"  # label
         # ],
         # gist vs gistsa ^ labelGists vs extraGists
+        # sweep_id=[
+        #     "infshots10d597",  # extraGists
+        #     "infshots66629b",  # labelGists
+        #     "infshotse66661",
+        #     "infshotsc49a8e",  # labelGists (first occurence)
+        #     "infshotsdb7b79",
+        #     "selfproto2a07c4",  # selfProto-lite
+        # ],
+        # gist vs gistsa ^ labelGists vs extraGists (proper masking)
         sweep_id=[
-            "infshots10d597",  # extraGists
-            "infshots66629b",  # labelGists
-            "infshotse66661",
-            "infshotsc49a8e",  # labelGists (first occurence)
-            "infshotsdb7b79",
-            "selfproto2a07c4",  # selfProto-lite
+            "selfproto7e6578",  # full (gistsa)
+            "selfprotoed843c",  # unique_with_keys (gistsa)
+            "selfproto05f128",  # last_unique (gistsa)
+            "selfprotoec0ce6",  # full (gistsa - pseudoAttn)
+            "selfproto7e9b1d",  # first_unique (gistsa)
+            "selfprotod60909",  # full (attn)
+            "selfprotobac5af",  # unique_with_keys (attn)
+            "selfproto148370",  # last_unique (attn)
         ],
         project_name="zoology"
     )
@@ -399,7 +416,7 @@ if __name__ == "__main__" :
     # plot_fine_acc2clusters(df=df, ood_test=False)
     for n_clusters in [2, 4]:
         plot_fine_acc2shots(df=df, n_clusters=n_clusters)
-        plt.savefig(f"results/gistExp-nclusters{n_clusters}-fine.pdf")
+        plt.savefig(f"results/gistExp2-nclusters{n_clusters}-fine.pdf")
     # State-size sweep for gla and gsa
     # plt.savefig("results/mqar-gla-sweep_fine.pdf")
     # Attention sweep

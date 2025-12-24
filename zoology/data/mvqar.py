@@ -17,8 +17,7 @@ class MVQARConfig(DataSegmentConfig):
     n_clusters: int=3
     add_gists: bool=False
     random_gists: bool=False
-    first_occurence: bool=False
-    gist_mask: bool=False
+    manual_gist_mode: str="last_unique"
 
     def build(self, seed: int) -> DataSegment:
         return mvq_ar(**self.model_dump(), seed=seed)
@@ -36,8 +35,7 @@ def mvq_ar(
     n_clusters: int=3,
     add_gists: bool=False,
     random_gists: bool=False,
-    first_occurence: bool=False,
-    gist_mask: bool=False,
+    manual_gist_mode: str="full",
     **kwargs
 ) -> DataSegment:
     """
@@ -214,46 +212,62 @@ def mvq_ar(
     if random_non_queries:
         inputs[inputs == 0] = torch.randint(vocab_size, size=inputs.shape)[inputs == 0]
 
-
     if add_gists:
-        if gist_mask:
-            # Construct gist attention mask
-            gist_attention_mask = torch.zeros_like(inputs, dtype=torch.bool)
-            gist_attention_mask[:, context_size : context_size + n_clusters] = True
-        else:
-            gist_attention_mask = None
+        # Construct gist attention mask
+        gist_idx = torch.tensor([0] + list(range(context_size, context_size + n_clusters))).expand(inputs.shapes[0], n_clusters + 1)
         kwargs = {
             "gist_start": context_size,
             "n_gists": n_clusters,
             "query_start": context_size + n_clusters,
-            "gist_attention_mask": gist_attention_mask
+            "gist_idx": gist_idx
         }
     else:
-        if gist_mask:
-            # Construct gist attention mask
-            gist_attention_mask = torch.zeros_like(inputs, dtype=torch.bool)
-            if first_occurence:
-                # NOTE: using the first occurence of each label
-                unique_label_locs = np.apply_along_axis(lambda arr: np.unique(arr, return_index=True)[1], 1, values)
-            else:
-                # NOTE: using the last occurence of each label
-                unique_label_locs = np.apply_along_axis(lambda arr: -1 - np.unique(np.flip(arr), return_index=True)[1], 1, values)
-            unique_label_mask = np.zeros_like(values, dtype=np.bool)
-            unique_label_mask[np.arange(values.shape[0])[:, None], unique_label_locs] = True
-            gist_attention_mask[:, n_dims:context_size:(1+n_dims)] = torch.tensor(unique_label_mask)
+        # Construct gist attention mask
+        if manual_gist_mode == "first_unique":
+            # NOTE: using the first occurence of each label
+            unique_label_locs = np.apply_along_axis(lambda arr: np.unique(arr, return_index=True)[1], 1, values)
+            # multiply by (n_dims + 1) to get the correct index in the input sequence
+            unique_label_locs = unique_label_locs * (n_dims + 1) + n_dims + 1
+            # sort the unique label locations for clarity (does not affect behavior)
+            unique_label_locs = np.sort(unique_label_locs, axis=1)
+            gist_idx = torch.concat([torch.zeros(inputs.shape[0], 1), torch.tensor(unique_label_locs)], axis=1).long()
+            n_gists = unique_label_locs.shape[1]
+        elif manual_gist_mode == "last_unique":
+            # NOTE: using the last occurence of each label
+            unique_label_locs = np.apply_along_axis(lambda arr: len(arr) - 1 - np.unique(np.flip(arr), return_index=True)[1], 1, values)
+            # multiply by (n_dims + 1) to get the correct index in the input sequence
+            unique_label_locs = unique_label_locs * (n_dims + 1) + n_dims + 1
+            # sort the unique label locations for clarity (does not affect behavior)
+            unique_label_locs = np.sort(unique_label_locs, axis=1)
+            gist_idx = torch.concat([torch.zeros(inputs.shape[0], 1), torch.tensor(unique_label_locs)], axis=1).long()
+            n_gists = unique_label_locs.shape[1]
+        elif manual_gist_mode == "unique_with_keys":
+            # NOTE: using the last occurence of each label
+            unique_label_locs = np.apply_along_axis(lambda arr: len(arr) - 1 - np.unique(np.flip(arr), return_index=True)[1], 1, values)
+            # multiply by (n_dims + 1) to get the correct index in the input sequence
+            unique_label_locs = unique_label_locs * (n_dims + 1) + n_dims + 1
+            # add indices of each label's keys
+            unique_label_locs = np.concatenate([unique_label_locs - i for i in range(n_dims + 1)], axis=1)
+            # sort the unique label locations for clarity (does not affect behavior)
+            unique_label_locs = np.sort(unique_label_locs, axis=1)
+            gist_idx = torch.concat([torch.zeros(inputs.shape[0], 1), torch.tensor(unique_label_locs)], axis=1).long()
+            n_gists = unique_label_locs.shape[1]
+        elif manual_gist_mode == "full":
+            gist_idx = torch.arange(inputs.shape[1]).expand(inputs.shape[0], inputs.shape[1])
+            n_gists = inputs.shape[1]
         else:
-            gist_attention_mask = None
+            raise ValueError(f"Invalid manual gist mode: {manual_gist_mode}")
         kwargs = {
             "gist_start": context_size,
-            "n_gists": n_clusters,
+            "n_gists": n_gists,
             "query_start": context_size,
-            "gist_attention_mask": gist_attention_mask
+            "gist_idx": gist_idx
         }
 
     return DataSegment(
         inputs, 
         labels, 
-        slices={"num_kv_pairs": num_kv_pairs, "input_seq_len": input_seq_len, "n_dims": n_dims, "n_clusters": n_clusters},
+        slices={"num_kv_pairs": num_kv_pairs, "input_seq_len": input_seq_len, "n_dims": n_dims, "n_clusters": n_clusters, "n_gists": n_gists},
         kwargs=kwargs
     )
 

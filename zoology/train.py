@@ -122,6 +122,12 @@ class Trainer:
                
                 iterator.update(1)
 
+            # run module-specific logging
+            def run_module_logging(module):
+                if hasattr(module, "log"):
+                    module.log(self.logger)
+            self.model.apply(run_module_logging)
+
             # test_accuracy = compute_accuracy(
             #     torch.cat(all_preds, dim=0), torch.cat(all_targets, dim=0)
             # )
@@ -138,7 +144,7 @@ class Trainer:
             for key in self.slice_keys:
                 acc_by_slice = results.groupby(key)["accuracy"].mean()
                 for value, accuracy in acc_by_slice.items():
-                    metrics[f"valid/{key}/accuracy-{value}"] = accuracy
+                    metrics[f"valid/{key}/accuracy-{value[:3]}-{"-".join(map(str, value[3:]))}"] = accuracy
 
             iterator.set_postfix(metrics)
             self.logger.log({"epoch": epoch_idx, **metrics})

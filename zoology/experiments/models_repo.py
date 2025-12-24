@@ -398,7 +398,7 @@ def add_gsa(models, conv_mixer, input_seq_len, model_factory_kwargs):
 
 
 # Gist slot attention
-def add_gistsa(models, conv_mixer, input_seq_len, model_factory_kwargs, self_proto=False):
+def add_gistsa(models, conv_mixer, input_seq_len, model_factory_kwargs, self_proto=False, gate_logit_normalizer=8.0):
     block_type = "TransformerBlock"
     # for d_model in [64, 128, 256]:
     #     num_slots = d_model // 2
@@ -413,6 +413,7 @@ def add_gistsa(models, conv_mixer, input_seq_len, model_factory_kwargs, self_pro
                 "mode": "fused_recurrent",
                 # "mode": "chunk",
                 "self_proto": self_proto,
+                "gate_logit_normalizer": gate_logit_normalizer,
             }
         )
         mixer = dict(

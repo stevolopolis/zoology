@@ -13,7 +13,7 @@ class SelfAttention(nn.Module):
         self.dropout_p = attention_dropout
         self.gist = gist
 
-    def forward(self, qkv, gist_start=None, n_gists=None, query_start=None, gist_attention_mask=None):
+    def forward(self, qkv, gist_start=None, n_gists=None, query_start=None, gist_idx=None):
         """Implements the multihead softmax attention.
         Arguments
         ---------
@@ -25,24 +25,18 @@ class SelfAttention(nn.Module):
         softmax_scale = 1.0 / math.sqrt(q.shape[-1])
         scores = torch.einsum("bthd,bshd->bhts", q, k * softmax_scale)
         causal_mask = torch.triu(
-            torch.full((seqlen, seqlen), -10000.0, device=scores.device), 1
+            torch.full((seqlen, seqlen), -float("inf"), device=scores.device), 1
         )
         # mask all the tokens prior to gist start from tokens after gist_start + n_gists
         if self.gist:
-            if gist_attention_mask is not None and query_start is not None:
-                gist_mask = gist_attention_mask
-                gist_mask = gist_mask[:, None, :].repeat(1, causal_mask.shape[1], 1)
-                gist_mask[:, :, query_start:] = True
-                gist_mask[:, :query_start] = True
-                causal_mask = causal_mask[None, ...].repeat(q.shape[0], 1, 1)
-                causal_mask[~gist_mask] = -10000.0
+            if gist_idx is not None:
+                tmp_mask = torch.full((q.shape[0], seqlen, seqlen), -float("inf"), device=q.device)
+                tmp_mask[torch.arange(q.shape[0], device=q.device)[:, None, None], :, gist_idx[:, None, :]] = 0.0
+                causal_mask = causal_mask + tmp_mask
                 causal_mask = causal_mask[:, None, ...]  # expand the head dimension
-            elif gist_start is not None and n_gists is not None:
-                causal_mask[gist_start+n_gists:, :gist_start] = -10000.0
             else:
                 raise NotImplementedError("GistAttention incorrectly implemented.")
 
-        print(scores.shape, causal_mask.shape)
         scores = scores + causal_mask.to(dtype=scores.dtype)
         attention = torch.softmax(scores, dim=-1, dtype=v.dtype)
         attention_drop = F.dropout(attention, self.dropout_p if self.training else 0.0)
@@ -88,4 +82,4 @@ class MHA(nn.Module):
         return out
     
     def state_size(self, batch_size: int=1, sequence_length: int=2048):
-        return 2 * self.d_model * sequence_length
+        return 2 * self.d_model

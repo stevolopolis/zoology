@@ -19,7 +19,7 @@ def import_from_str(path) -> Union[type, Callable]:
         obj = getattr(module, obj_name)
         return obj
     except ImportError as e:
-        raise ImportError(f"Module '{module_name}' not found.") from e
+        raise ImportError(f"Module '{module_name}' not found. {e}") from e
     except AttributeError as e:
         raise AttributeError(f"Class '{obj_name}' not found in module '{module_name}'.") from e
 

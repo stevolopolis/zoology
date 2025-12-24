@@ -2,12 +2,12 @@
 # Usage: sbatch run.SBATCH <filename>
 
 #SBATCH --nodes=1
-#SBATCH --time=02:00:00
+#SBATCH --time=01:00:00
 #SBATCH --mem=64g
-#SBATCH --ntasks-per-node=4
-#SBATCH --gres=gpu:4
+#SBATCH --ntasks-per-node=1
+#SBATCH --gres=gpu:1
 #SBATCH --constraint="l40s"
-#SBATCH --job-name=gist_vs_attn
+#SBATCH --job-name=gistsa2
 #SBATCH --output=slurm/logs/%j.out
 
 module purge
@@ -38,4 +38,4 @@ export PATH=$PATH_TO_ENV/bin:$PATH;
 # python -m zoology.launch zoology/experiments/gisting/configs_inf_shots.py -p
 # python -m zoology.launch zoology/experiments/gisting/configs_gistsa_vs_gist.py -p
 # python -m zoology.launch zoology/experiments/gisting/configs_selfproto.py -p
-python -m zoology.launch zoology/experiments/gisting/configs_gistsa_vs_attn.py -p
+python -m zoology.launch zoology/experiments/gisting/configs_gistsa_vs_attn.py
